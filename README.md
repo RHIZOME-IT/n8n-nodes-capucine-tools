@@ -12,7 +12,7 @@ In n8n: *Settings → Community nodes → Install*, package `@rhizome-it/n8n-nod
 
 ## Credential
 
-**Capucine Tools API**: one credential per environment (local, prod…).
+**Capucine Tools**: one credential per environment (local, prod…).
 
 - **Base URL**: e.g. `https://capucine-tools.coolify.rhizome-it.com` or `http://localhost:3000`
 - **API Key**: the API's `API_KEY`, sent as `Authorization: Bearer <key>`

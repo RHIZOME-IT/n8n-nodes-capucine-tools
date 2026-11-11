@@ -10,7 +10,7 @@ import type {
 export class CapucineToolsApi implements ICredentialType {
 	name = 'capucineToolsApi';
 
-	displayName = 'Capucine Tools API';
+	displayName = 'Capucine Tools';
 
 	icon: Icon = 'file:../nodes/CapucineTools/capucineTools.svg';
 
