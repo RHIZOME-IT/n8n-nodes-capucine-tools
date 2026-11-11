@@ -10,6 +10,7 @@ import type {
 export class CapucineToolsApi implements ICredentialType {
 	name = 'capucineToolsApi';
 
+	// eslint-disable-next-line n8n-nodes-base/cred-class-field-display-name-missing-api -- product name chosen by Rhizome IT
 	displayName = 'Capucine Tools';
 
 	icon: Icon = 'file:../nodes/CapucineTools/capucineTools.svg';
