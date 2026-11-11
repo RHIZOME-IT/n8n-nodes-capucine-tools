@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    # Release tags are bare semver (e.g. 0.1.1), created by `npm version`; each one is published to npm.
+    tags: ['[0-9]+.[0-9]+.[0-9]+*']
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # isolated-vm (pulled by @n8n/node-cli) is only needed by `n8n-node dev`.
+      - run: npm ci --ignore-scripts
+      - run: npm run lint
+      - run: npm run build
+      - run: npm test
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # npm trusted publishing (OIDC): no npm token, provenance attached to the package.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Check that the tag matches package.json
+        run: test "$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      # Trusted publishing needs npm >= 11.5.1.
+      - run: npm install -g npm@^11.5.1
+      # RELEASE_MODE lets the `prepublishOnly` guard (n8n-node prerelease) through.
+      - run: npm publish --provenance --access public
+        env:
+          RELEASE_MODE: '1'

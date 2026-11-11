@@ -32,4 +32,12 @@ npm run dev                    # local n8n with the node linked (needs Node LTS)
 
 ## Release
 
-`npm run release` (bumps the version, tags, publishes to npm under the `@rhizome-it` org).
+The CI (`.github/workflows/ci.yaml`) publishes to npm on every bare semver tag, through npm
+trusted publishing (no npm token, with provenance):
+
+```bash
+npm version patch   # or minor / major: bumps package.json, commits, tags (e.g. 0.1.1)
+git push --follow-tags
+```
+
+`npm publish` from a workstation is blocked by `prepublishOnly`, except with `RELEASE_MODE=1`.
