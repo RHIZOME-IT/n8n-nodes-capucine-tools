@@ -1,0 +1,9 @@
+{
+	"node": "n8n-nodes-base.capucineTools",
+	"nodeVersion": "1.0",
+	"codexVersion": "1.0",
+	"categories": ["Development"],
+	"resources": {
+		"primaryDocumentation": [{ "url": "https://github.com/RHIZOME-IT/n8n-nodes-capucine-tools" }]
+	}
+}

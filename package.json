@@ -1,0 +1,51 @@
+{
+	"name": "@rhizome-it/n8n-nodes-capucine-tools",
+	"version": "0.1.0",
+	"description": "n8n node for Capucine Tools (Rhizome IT)",
+	"license": "MIT",
+	"homepage": "https://github.com/RHIZOME-IT/n8n-nodes-capucine-tools",
+	"keywords": [
+		"n8n-community-node-package"
+	],
+	"author": {
+		"name": "Raphael De Freitas",
+		"email": "raphael@de-freitas.net"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/RHIZOME-IT/n8n-nodes-capucine-tools.git"
+	},
+	"scripts": {
+		"build": "n8n-node build",
+		"build:watch": "tsc --watch",
+		"dev": "n8n-node dev",
+		"lint": "n8n-node lint",
+		"lint:fix": "n8n-node lint --fix",
+		"release": "n8n-node release",
+		"prepublishOnly": "n8n-node prerelease",
+		"test": "node test/smoke.mjs"
+	},
+	"files": [
+		"dist"
+	],
+	"n8n": {
+		"n8nNodesApiVersion": 1,
+		"strict": true,
+		"credentials": [
+			"dist/credentials/CapucineToolsApi.credentials.js"
+		],
+		"nodes": [
+			"dist/nodes/CapucineTools/CapucineTools.node.js"
+		]
+	},
+	"devDependencies": {
+		"@n8n/node-cli": "^0.56.2",
+		"eslint": "^9.32.0",
+		"n8n-workflow": "^2.16.0",
+		"prettier": "^3.6.2",
+		"typescript": "^5.9.2"
+	},
+	"peerDependencies": {
+		"n8n-workflow": "*"
+	}
+}
