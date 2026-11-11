@@ -8,7 +8,8 @@ import type {
 
 /** One credential per environment (local, prod...): base URL + API key. */
 export class CapucineToolsApi implements ICredentialType {
-	name = 'capucineToolsApi';
+	// eslint-disable-next-line n8n-nodes-base/cred-class-field-name-unsuffixed -- internal name chosen by Rhizome IT
+	name = 'capucineTools';
 
 	// eslint-disable-next-line n8n-nodes-base/cred-class-field-display-name-missing-api -- product name chosen by Rhizome IT
 	displayName = 'Capucine Tools';

@@ -44,7 +44,7 @@ type Input = {
 	schema: Schema;
 };
 
-const CREDENTIAL = 'capucineToolsApi';
+const CREDENTIAL = 'capucineTools';
 const METHODS = ['get', 'post', 'put', 'patch', 'delete'];
 
 async function getBaseUrl(this: IExecuteFunctions | ILoadOptionsFunctions): Promise<string> {
