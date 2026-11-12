@@ -1,6 +1,6 @@
 {
 	"name": "@rhizome-it/n8n-nodes-capucine-tools",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"description": "n8n node for Capucine Tools (Rhizome IT)",
 	"license": "MIT",
 	"homepage": "https://github.com/RHIZOME-IT/n8n-nodes-capucine-tools",
