@@ -16,6 +16,7 @@ import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workf
 // Minimal slice of OpenAPI 3 that the NestJS Swagger document produces.
 type Schema = {
 	type?: string;
+	format?: string;
 	enum?: Array<string | number>;
 	properties?: Record<string, Schema>;
 	required?: string[];
@@ -46,6 +47,8 @@ type Input = {
 
 const CREDENTIAL = 'capucineTools';
 const METHODS = ['get', 'post', 'put', 'patch', 'delete'];
+// Some tools (document generation) run for minutes.
+const TIMEOUT_MS = 600_000;
 
 async function getBaseUrl(this: IExecuteFunctions | ILoadOptionsFunctions): Promise<string> {
 	const { baseUrl } = await this.getCredentials(CREDENTIAL);
@@ -75,6 +78,17 @@ function findOperation(
 	return { method, path, op: spec.paths[path]?.[method.toLowerCase()] };
 }
 
+/** JSON body, else multipart/form-data (file upload routes). */
+function bodyOf(spec: OpenApi, op: Operation): { schema: Schema; multipart: boolean } {
+	const content = op.requestBody?.content;
+	const multipart = !content?.['application/json'] && !!content?.['multipart/form-data'];
+	const media = content?.[multipart ? 'multipart/form-data' : 'application/json'];
+	return { schema: deref(spec, media?.schema), multipart };
+}
+
+/** A binary field's value is the name of a binary property of the input item. */
+const isBinary = (schema: Schema) => schema.format === 'binary';
+
 function inputsOf(spec: OpenApi, op: Operation): Input[] {
 	const params: Input[] = (op.parameters ?? [])
 		.filter((p) => p.in === 'path' || p.in === 'query')
@@ -84,7 +98,7 @@ function inputsOf(spec: OpenApi, op: Operation): Input[] {
 			required: p.in === 'path' || !!p.required,
 			schema: deref(spec, p.schema),
 		}));
-	const body = deref(spec, op.requestBody?.content?.['application/json']?.schema);
+	const body = bodyOf(spec, op).schema;
 	const bodyInputs: Input[] = Object.entries(body.properties ?? {}).map(([name, schema]) => ({
 		name,
 		location: 'body',
@@ -181,7 +195,7 @@ export class CapucineTools implements INodeType {
 				return {
 					fields: inputsOf(spec, op).map((input) => ({
 						id: input.name,
-						displayName: input.name,
+						displayName: isBinary(input.schema) ? `${input.name} (binary property)` : input.name,
 						required: input.required,
 						defaultMatch: false,
 						display: true,
@@ -199,9 +213,10 @@ export class CapucineTools implements INodeType {
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const spec = await getSpec.call(this);
 		const baseUrl = await getBaseUrl.call(this);
+		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
 
-		for (let i = 0; i < this.getInputData().length; i++) {
+		for (let i = 0; i < items.length; i++) {
 			const key = this.getNodeParameter('operation', i) as string;
 			const { method, path, op } = findOperation(spec, key);
 			if (!op) {
@@ -219,13 +234,36 @@ export class CapucineTools implements INodeType {
 				let url = path;
 				const qs: IDataObject = {};
 				const body: IDataObject = {};
+				const { multipart } = bodyOf(spec, op);
+				const form = new FormData();
 				for (const input of inputsOf(spec, op)) {
 					const value = values[input.name];
 					if (value === undefined || value === null || value === '') continue;
 					if (input.location === 'path')
 						url = url.replace(`{${input.name}}`, encodeURIComponent(String(value)));
 					else if (input.location === 'query') qs[input.name] = value;
-					else body[input.name] = value;
+					else if (!multipart) body[input.name] = value;
+					else if (isBinary(input.schema)) {
+						const prop = String(value);
+						if (!items[i].binary?.[prop]) {
+							throw new NodeOperationError(
+								this.getNode(),
+								`Field "${input.name}" expects the binary property "${prop}" on input item ${i}, but it has none`,
+								{ itemIndex: i },
+							);
+						}
+						const file = this.helpers.assertBinaryData(i, prop);
+						const buffer = await this.helpers.getBinaryDataBuffer(i, prop);
+						form.append(
+							input.name,
+							new Blob([buffer], { type: file.mimeType }),
+							file.fileName ?? input.name,
+						);
+					} else
+						form.append(
+							input.name,
+							typeof value === 'object' ? JSON.stringify(value) : String(value),
+						);
 				}
 
 				const response: unknown = await this.helpers.httpRequestWithAuthentication.call(
@@ -235,8 +273,10 @@ export class CapucineTools implements INodeType {
 						method: method as IHttpRequestMethods,
 						url: `${baseUrl}${url}`,
 						qs,
-						body: op.requestBody ? body : undefined,
+						// Native FormData: axios (behind n8n's helper) sends it as multipart with its boundary.
+						body: !op.requestBody ? undefined : multipart ? (form as unknown as IDataObject) : body,
 						json: true,
+						timeout: TIMEOUT_MS,
 					},
 				);
 				const json =
@@ -252,6 +292,9 @@ export class CapucineTools implements INodeType {
 					});
 					continue;
 				}
+				// Returns the same instance: our own errors (missing binary) keep their message.
+				if (error instanceof NodeOperationError)
+					throw new NodeOperationError(this.getNode(), error, { itemIndex: i });
 				throw new NodeApiError(this.getNode(), error as JsonObject, {
 					itemIndex: i,
 				});

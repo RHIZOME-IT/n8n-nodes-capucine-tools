@@ -6,6 +6,11 @@ The tool list is read at runtime from the API's OpenAPI document (`<base URL>/do
 every route exposed by Capucine Tools shows up in the **Tool** dropdown, with its path, query
 and JSON body fields in **Fields**. A new tool in the API needs no new release of this node.
 
+File upload routes (`multipart/form-data`) work too: a file field, shown as
+`<name> (binary property)`, takes the name of a binary property of the input item (e.g. `data`),
+whose bytes, MIME type and file name are sent as the file. Calls time out after 10 minutes,
+since some tools (document generation) take several minutes.
+
 ## Install
 
 In n8n: *Settings → Community nodes → Install*, package `@rhizome-it/n8n-nodes-capucine-tools`.
