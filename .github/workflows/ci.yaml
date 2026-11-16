@@ -40,7 +40,8 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-          registry-url: https://registry.npmjs.org
+          # No registry-url: it writes an .npmrc with a placeholder token that npm
+          # would send instead of exchanging the OIDC token (trusted publishing).
       - name: Check that the tag matches package.json
         run: test "$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
       - run: npm ci --ignore-scripts
@@ -48,6 +49,12 @@ jobs:
       # Trusted publishing needs npm >= 11.5.1.
       - run: npm install -g npm@^11.5.1
       # RELEASE_MODE lets the `prepublishOnly` guard (n8n-node prerelease) through.
-      - run: npm publish --provenance --access public
+      # npm errors are re-emitted as annotations: they are readable without opening the job log.
+      - run: |
+          set -o pipefail
+          npm publish --provenance --access public 2>&1 | tee publish.log || {
+            grep -E 'npm (error|warn)' publish.log | head -20 | sed 's/^/::error::/'
+            exit 1
+          }
         env:
           RELEASE_MODE: '1'
