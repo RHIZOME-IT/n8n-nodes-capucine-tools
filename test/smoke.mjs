@@ -5,12 +5,14 @@ import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { CapucineTools } = require('../dist/nodes/CapucineTools/CapucineTools.node.js');
+const { CapucineTools, fileNameOf } = require('../dist/nodes/CapucineTools/CapucineTools.node.js');
 
 const spec = {
 	openapi: '3.0.0',
 	paths: {
 		'/health': { get: { parameters: [] } },
+		'/file': { post: { summary: 'File' } },
+		'/fail': { post: { summary: 'Fail' } },
 		'/tools/greet/{id}': {
 			post: {
 				summary: 'Greet',
@@ -66,11 +68,25 @@ async function parseBody(type, raw) {
 		out[k] = typeof v === 'string' ? v : { name: v.name, type: v.type, text: await v.text() };
 	return out;
 }
+const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const BYTES = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0xff, 0x00, 0xc3, 0x28]); // not valid UTF-8
 const server = createServer((req, res) => {
 	const chunks = [];
 	req.on('data', (c) => chunks.push(c));
 	req.on('end', async () => {
+		if (req.url === '/file') {
+			res.setHeader('content-type', DOCX);
+			res.setHeader(
+				'content-disposition',
+				`attachment; filename="Profil.docx"; filename*=UTF-8''${encodeURIComponent('Profil é à.docx')}`,
+			);
+			return res.end(BYTES);
+		}
 		res.setHeader('content-type', 'application/json');
+		if (req.url === '/fail') {
+			res.statusCode = 422;
+			return res.end(JSON.stringify({ message: 'Profile is invalid' }));
+		}
 		if (req.url === '/docs-json') return res.end(JSON.stringify(spec));
 		const type = req.headers['content-type'];
 		res.end(
@@ -98,7 +114,15 @@ async function http(opts) {
 		headers: { ...(form ? {} : { 'content-type': 'application/json' }), ...opts.headers },
 		body: form ? opts.body : opts.body ? JSON.stringify(opts.body) : undefined,
 	});
-	return res.json();
+	// Like n8n: arraybuffer => Buffer body, full response => { body, headers, statusCode }, errors carry response.data.
+	assert.equal(opts.encoding, 'arraybuffer');
+	assert.equal(opts.returnFullResponse, true);
+	const body = Buffer.from(await res.arrayBuffer());
+	if (!res.ok)
+		throw Object.assign(new Error(`Request failed with status code ${res.status}`), {
+			response: { status: res.status, data: body },
+		});
+	return { body, headers: Object.fromEntries(res.headers), statusCode: res.status };
 }
 let params = {
 	operation: 'POST /tools/greet/{id}',
@@ -112,7 +136,13 @@ const ctx = {
 	getNode: () => ({ name: 'Capucine Tools' }),
 	continueOnFail: () => false,
 	helpers: {
-		httpRequest: http,
+		httpRequest: async (opts) =>
+			JSON.parse((await http({ ...opts, encoding: 'arraybuffer', returnFullResponse: true })).body),
+		prepareBinaryData: async (buffer, fileName, mimeType) => ({
+			data: buffer.toString('base64'),
+			fileName,
+			mimeType,
+		}),
 		httpRequestWithAuthentication: (_cred, opts) => {
 			calls.push(opts);
 			return http({ ...opts, headers: { authorization: 'Bearer k' } });
@@ -131,7 +161,13 @@ const node = new CapucineTools();
 const ops = await node.methods.loadOptions.getOperations.call(ctx);
 assert.deepEqual(
 	ops.map((o) => o.value),
-	['GET /health', 'POST /tools/greet/{id}', 'POST /generate-profile-doc-from-file'],
+	[
+		'GET /health',
+		'POST /file',
+		'POST /fail',
+		'POST /tools/greet/{id}',
+		'POST /generate-profile-doc-from-file',
+	],
 );
 
 const { fields } = await node.methods.resourceMapping.getFields.call(ctx);
@@ -208,6 +244,33 @@ await assert.rejects(node.execute.call(ctx), (e) => {
 	assert.equal(e.constructor.name, 'NodeOperationError');
 	assert.match(e.message, /profileFile/);
 	assert.match(e.message, /nope/);
+	return true;
+});
+
+// File response: binary.data keeps the exact bytes, accented file name from filename*.
+params = { operation: 'POST /file' };
+items = [{ json: {} }];
+const [[fileOut]] = await node.execute.call(ctx);
+assert.deepEqual(fileOut.json, {
+	fileName: 'Profil é à.docx',
+	mimeType: DOCX,
+	fileSize: BYTES.length,
+});
+assert.equal(fileOut.binary.data.fileName, 'Profil é à.docx');
+assert.equal(fileOut.binary.data.mimeType, DOCX);
+assert.ok(Buffer.from(fileOut.binary.data.data, 'base64').equals(BYTES));
+
+// File name fallbacks.
+assert.equal(fileNameOf('attachment; filename="a b.docx"'), 'a b.docx');
+assert.equal(fileNameOf('attachment; filename=a.docx'), 'a.docx');
+assert.equal(fileNameOf(undefined), 'file');
+
+// A JSON error body still surfaces its message (NodeApiError puts the API message in description).
+
+params = { operation: 'POST /fail' };
+await assert.rejects(node.execute.call(ctx), (e) => {
+	assert.equal(e.constructor.name, 'NodeApiError');
+	assert.equal(e.description, 'Profile is invalid');
 	return true;
 });
 

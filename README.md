@@ -11,6 +11,9 @@ File upload routes (`multipart/form-data`) work too: a file field, shown as
 whose bytes, MIME type and file name are sent as the file. Calls time out after 10 minutes,
 since some tools (document generation) take several minutes.
 
+When a tool answers with a file (e.g. a `.docx`), the output item holds it as `binary.data`, with
+`fileName`, `mimeType` and `fileSize` in `json`; JSON responses are output as `json`.
+
 ## Install
 
 In n8n: *Settings → Community nodes → Install*, package `@rhizome-it/n8n-nodes-capucine-tools`.

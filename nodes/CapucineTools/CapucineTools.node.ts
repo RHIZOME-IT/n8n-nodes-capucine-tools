@@ -50,6 +50,33 @@ const METHODS = ['get', 'post', 'put', 'patch', 'delete'];
 // Some tools (document generation) run for minutes.
 const TIMEOUT_MS = 600_000;
 
+/** File name from a Content-Disposition header: RFC 5987 `filename*` first, then `filename`, else "file". */
+export function fileNameOf(disposition: string | undefined): string {
+	const star = /filename\*\s*=\s*[^']*'[^']*'([^;]+)/i.exec(disposition ?? '')?.[1];
+	if (star) {
+		try {
+			return decodeURIComponent(star.trim());
+		} catch {
+			// malformed percent-encoding: fall back to the plain filename
+		}
+	}
+	const plain = /filename\s*=\s*(?:"([^"]*)"|([^;]+))/i.exec(disposition ?? '');
+	return (plain?.[1] ?? plain?.[2])?.trim() || 'file';
+}
+
+/** Responses are requested as buffers: an error body must be decoded again so its message surfaces. */
+function decodeErrorBody(error: unknown): void {
+	const response = (error as { response?: { data?: unknown } }).response;
+	const data = response?.data;
+	if (!response || !(Buffer.isBuffer(data) || data instanceof ArrayBuffer)) return;
+	const text = Buffer.from(data as Buffer).toString('utf8');
+	try {
+		response.data = JSON.parse(text);
+	} catch {
+		response.data = text;
+	}
+}
+
 async function getBaseUrl(this: IExecuteFunctions | ILoadOptionsFunctions): Promise<string> {
 	const { baseUrl } = await this.getCredentials(CREDENTIAL);
 	return String(baseUrl).replace(/\/$/, '');
@@ -266,25 +293,44 @@ export class CapucineTools implements INodeType {
 						);
 				}
 
-				const response: unknown = await this.helpers.httpRequestWithAuthentication.call(
-					this,
-					CREDENTIAL,
-					{
-						method: method as IHttpRequestMethods,
-						url: `${baseUrl}${url}`,
-						qs,
-						// Native FormData: axios (behind n8n's helper) sends it as multipart with its boundary.
-						body: !op.requestBody ? undefined : multipart ? (form as unknown as IDataObject) : body,
-						json: true,
-						timeout: TIMEOUT_MS,
-					},
-				);
-				const json =
-					response && typeof response === 'object' && !Array.isArray(response)
-						? (response as IDataObject)
-						: { data: response as IDataObject };
-				returnData.push({ json, pairedItem: { item: i } });
+				const response = (await this.helpers.httpRequestWithAuthentication.call(this, CREDENTIAL, {
+					method: method as IHttpRequestMethods,
+					url: `${baseUrl}${url}`,
+					qs,
+					// Native FormData: axios (behind n8n's helper) sends it as multipart with its boundary.
+					body: !op.requestBody ? undefined : multipart ? (form as unknown as IDataObject) : body,
+					// Buffer + full response: the API answers JSON or a file, we decide from the content type.
+					encoding: 'arraybuffer',
+					returnFullResponse: true,
+					timeout: TIMEOUT_MS,
+				})) as { body: Buffer; headers: Record<string, string | undefined> };
+				const buffer = Buffer.from(response.body);
+				const mimeType = (response.headers['content-type'] ?? '')
+					.split(';')[0]
+					.trim()
+					.toLowerCase();
+				if (mimeType === 'application/json' || mimeType.endsWith('+json')) {
+					const parsed: unknown = JSON.parse(buffer.toString('utf8'));
+					const json =
+						parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+							? (parsed as IDataObject)
+							: { data: parsed as IDataObject };
+					returnData.push({ json, pairedItem: { item: i } });
+				} else {
+					const fileName = fileNameOf(response.headers['content-disposition']);
+					const binary = await this.helpers.prepareBinaryData(
+						buffer,
+						fileName,
+						mimeType || undefined,
+					);
+					returnData.push({
+						json: { fileName, mimeType: binary.mimeType, fileSize: buffer.length },
+						binary: { data: binary },
+						pairedItem: { item: i },
+					});
+				}
 			} catch (error) {
+				decodeErrorBody(error);
 				if (this.continueOnFail()) {
 					returnData.push({
 						json: { error: (error as Error).message },
