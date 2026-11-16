@@ -52,8 +52,8 @@ jobs:
       # npm errors are re-emitted as annotations: they are readable without opening the job log.
       - run: |
           set -o pipefail
-          npm publish --provenance --access public 2>&1 | tee publish.log || {
-            grep -E 'npm (error|warn)' publish.log | head -20 | sed 's/^/::error::/'
+          npm publish --provenance --access public --loglevel verbose 2>&1 | tee publish.log || {
+            grep -iE 'npm (error|warn)|oidc|trusted|provenance' publish.log | grep -v '^npm verbose cli' | head -30 | sed 's/^/::error::/'
             exit 1
           }
         env:
