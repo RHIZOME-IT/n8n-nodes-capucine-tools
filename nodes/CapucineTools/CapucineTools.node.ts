@@ -64,19 +64,6 @@ export function fileNameOf(disposition: string | undefined): string {
 	return (plain?.[1] ?? plain?.[2])?.trim() || 'file';
 }
 
-/** Responses are requested as buffers: an error body must be decoded again so its message surfaces. */
-function decodeErrorBody(error: unknown): void {
-	const response = (error as { response?: { data?: unknown } }).response;
-	const data = response?.data;
-	if (!response || !(Buffer.isBuffer(data) || data instanceof ArrayBuffer)) return;
-	const text = Buffer.from(data as Buffer).toString('utf8');
-	try {
-		response.data = JSON.parse(text);
-	} catch {
-		response.data = text;
-	}
-}
-
 async function getBaseUrl(this: IExecuteFunctions | ILoadOptionsFunctions): Promise<string> {
 	const { baseUrl } = await this.getCredentials(CREDENTIAL);
 	return String(baseUrl).replace(/\/$/, '');
@@ -302,14 +289,39 @@ export class CapucineTools implements INodeType {
 					// Buffer + full response: the API answers JSON or a file, we decide from the content type.
 					encoding: 'arraybuffer',
 					returnFullResponse: true,
+					// Error statuses come back as responses: their body is decoded below (the helper's own errors may wrap it).
+					ignoreHttpStatusErrors: true,
 					timeout: TIMEOUT_MS,
-				})) as { body: Buffer; headers: Record<string, string | undefined> };
-				const buffer = Buffer.from(response.body);
+				})) as {
+					body: Buffer;
+					headers: Record<string, string | undefined>;
+					statusCode: number;
+				};
+				const buffer = Buffer.from(response.body ?? '');
+				if (response.statusCode >= 400) {
+					const text = buffer.toString('utf8');
+					let data: unknown = text;
+					try {
+						data = JSON.parse(text);
+					} catch {
+						// not JSON: the raw text is the error body
+					}
+					throw new NodeApiError(
+						this.getNode(),
+						{
+							message: `Request failed with status code ${response.statusCode}`,
+							response: { status: response.statusCode, data },
+						} as unknown as JsonObject,
+						{ httpCode: String(response.statusCode), itemIndex: i },
+					);
+				}
 				const mimeType = (response.headers['content-type'] ?? '')
 					.split(';')[0]
 					.trim()
 					.toLowerCase();
-				if (mimeType === 'application/json' || mimeType.endsWith('+json')) {
+				if (buffer.length === 0) {
+					returnData.push({ json: { data: '' }, pairedItem: { item: i } });
+				} else if (mimeType === 'application/json' || mimeType.endsWith('+json')) {
 					const parsed: unknown = JSON.parse(buffer.toString('utf8'));
 					const json =
 						parsed && typeof parsed === 'object' && !Array.isArray(parsed)
@@ -330,7 +342,6 @@ export class CapucineTools implements INodeType {
 					});
 				}
 			} catch (error) {
-				decodeErrorBody(error);
 				if (this.continueOnFail()) {
 					returnData.push({
 						json: { error: (error as Error).message },

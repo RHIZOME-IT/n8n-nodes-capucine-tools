@@ -13,6 +13,11 @@ const spec = {
 		'/health': { get: { parameters: [] } },
 		'/file': { post: { summary: 'File' } },
 		'/fail': { post: { summary: 'Fail' } },
+		'/boom': { post: { summary: 'Boom' } },
+		'/charset': { post: { summary: 'Charset' } },
+		'/plus': { post: { summary: 'Plus' } },
+		'/array': { post: { summary: 'Array' } },
+		'/empty': { post: { summary: 'Empty' } },
 		'/tools/greet/{id}': {
 			post: {
 				summary: 'Greet',
@@ -82,6 +87,16 @@ const server = createServer((req, res) => {
 			);
 			return res.end(BYTES);
 		}
+		const reply = (type, body, status = 200) => {
+			res.statusCode = status;
+			res.setHeader('content-type', type);
+			res.end(body);
+		};
+		if (req.url === '/charset') return reply('application/json; charset=utf-8', '{"a":"é"}');
+		if (req.url === '/plus') return reply('application/problem+json', '{"b":1}');
+		if (req.url === '/array') return reply('application/json', '[1,2]');
+		if (req.url === '/empty') return reply('application/json', '');
+		if (req.url === '/boom') return reply('text/plain', 'upstream down', 502);
 		res.setHeader('content-type', 'application/json');
 		if (req.url === '/fail') {
 			res.statusCode = 422;
@@ -118,7 +133,7 @@ async function http(opts) {
 	assert.equal(opts.encoding, 'arraybuffer');
 	assert.equal(opts.returnFullResponse, true);
 	const body = Buffer.from(await res.arrayBuffer());
-	if (!res.ok)
+	if (!res.ok && !opts.ignoreHttpStatusErrors)
 		throw Object.assign(new Error(`Request failed with status code ${res.status}`), {
 			response: { status: res.status, data: body },
 		});
@@ -144,6 +159,7 @@ const ctx = {
 			mimeType,
 		}),
 		httpRequestWithAuthentication: (_cred, opts) => {
+			assert.equal(opts.ignoreHttpStatusErrors, true);
 			calls.push(opts);
 			return http({ ...opts, headers: { authorization: 'Bearer k' } });
 		},
@@ -165,6 +181,11 @@ assert.deepEqual(
 		'GET /health',
 		'POST /file',
 		'POST /fail',
+		'POST /boom',
+		'POST /charset',
+		'POST /plus',
+		'POST /array',
+		'POST /empty',
 		'POST /tools/greet/{id}',
 		'POST /generate-profile-doc-from-file',
 	],
@@ -273,6 +294,32 @@ await assert.rejects(node.execute.call(ctx), (e) => {
 	assert.equal(e.description, 'Profile is invalid');
 	return true;
 });
+
+// Content-type variants and empty body.
+for (const [op, expected] of [
+	['POST /charset', { a: 'é' }],
+	['POST /plus', { b: 1 }],
+	['POST /array', { data: [1, 2] }],
+	['POST /empty', { data: '' }],
+]) {
+	params = { operation: op };
+	const [[o]] = await node.execute.call(ctx);
+	assert.deepEqual(o.json, expected, op);
+	assert.equal(o.binary, undefined, op);
+}
+
+// Non-JSON error body: raw text in description, status code kept; continueOnFail reports the message.
+params = { operation: 'POST /boom' };
+await assert.rejects(node.execute.call(ctx), (e) => {
+	assert.equal(e.constructor.name, 'NodeApiError');
+	assert.equal(e.httpCode, '502');
+	return true;
+});
+ctx.continueOnFail = () => true;
+params = { operation: 'POST /fail' };
+const [[failOut]] = await node.execute.call(ctx);
+assert.equal(typeof failOut.json.error, 'string');
+ctx.continueOnFail = () => false;
 
 server.close();
 console.log('smoke ok');
