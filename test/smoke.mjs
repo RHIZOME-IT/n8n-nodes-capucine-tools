@@ -321,5 +321,14 @@ const [[failOut]] = await node.execute.call(ctx);
 assert.equal(typeof failOut.json.error, 'string');
 ctx.continueOnFail = () => false;
 
+// Never Error: the error body is output like a success, JSON or text.
+params = { operation: 'POST /fail', 'options.neverError': true };
+const [[neverJson]] = await node.execute.call(ctx);
+assert.deepEqual(neverJson.json, { message: 'Profile is invalid' });
+params = { operation: 'POST /boom', 'options.neverError': true };
+const [[neverText]] = await node.execute.call(ctx);
+assert.equal(neverText.json.mimeType, 'text/plain');
+assert.equal(Buffer.from(neverText.binary.data.data, 'base64').toString(), 'upstream down');
+
 server.close();
 console.log('smoke ok');
