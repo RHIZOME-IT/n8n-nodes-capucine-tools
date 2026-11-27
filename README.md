@@ -14,6 +14,10 @@ since some tools (document generation) take several minutes.
 When a tool answers with a file (e.g. a `.docx`), the output item holds it as `binary.data`, with
 `fileName`, `mimeType` and `fileSize` in `json`; JSON responses are output as `json`.
 
+An error status (4xx, 5xx) fails the node, with the API's message. With **Options → Never Error**,
+the error body is output like a normal response instead, so a workflow can read it (e.g. route it
+with an IF and send its details somewhere).
+
 ## Install
 
 In n8n: *Settings → Community nodes → Install*, package `@rhizome-it/n8n-nodes-capucine-tools`.

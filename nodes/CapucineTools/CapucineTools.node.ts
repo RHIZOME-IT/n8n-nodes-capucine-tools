@@ -184,6 +184,23 @@ export class CapucineTools implements INodeType {
 					},
 				},
 			},
+			{
+				displayName: 'Options',
+				name: 'options',
+				type: 'collection',
+				placeholder: 'Add Option',
+				default: {},
+				options: [
+					{
+						displayName: 'Never Error',
+						name: 'neverError',
+						type: 'boolean',
+						default: false,
+						description:
+							'Whether to succeed also when the status code is not 2xx: the error body is output like a normal response (JSON or file)',
+					},
+				],
+			},
 		],
 	};
 
@@ -298,7 +315,9 @@ export class CapucineTools implements INodeType {
 					statusCode: number;
 				};
 				const buffer = Buffer.from(response.body ?? '');
-				if (response.statusCode >= 400) {
+				// Never Error: an error body goes through the same decoding as a success (e.g. to route it with an IF).
+				const neverError = this.getNodeParameter('options.neverError', i, false) as boolean;
+				if (response.statusCode >= 400 && !neverError) {
 					const text = buffer.toString('utf8');
 					let data: unknown = text;
 					try {
